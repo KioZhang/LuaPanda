@@ -293,8 +293,9 @@ class LuaConfigurationProvider implements vscode.DebugConfigurationProvider {
                 config.logLevel = 1;
             }
     
-            if (config.autoReconnect != true) {
-                config.autoReconnect = false;
+            if (config.autoReconnect == undefined) {
+                // 未配置时默认等待下一个 Lua 进程连接。
+                config.autoReconnect = true;
             }
     
             if (config.updateTips == undefined) {

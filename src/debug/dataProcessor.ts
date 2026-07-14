@@ -13,6 +13,19 @@ export class DataProcessor {
     private getDataJsonCatch: string = "";                      //解析缓存，防止用户信息中含有分隔符
 
     /**
+     * @brief 清理已断开目标程序留下的连接状态。
+     * @return 无返回值。
+     * @note 保留运行时实例，仅清除单次连接关联的回调和接收缓存。
+     */
+    public resetConnection(): void {
+        delete this._socket;
+        this.orderList = new Array();
+        this.recvMsgQueue = new Array();
+        this.cutoffString = "";
+        this.getDataJsonCatch = "";
+    }
+
+    /**
      * 接收从Debugger发来的消息
      * @param orgData: 消息串
      */
