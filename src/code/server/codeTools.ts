@@ -6,8 +6,8 @@
 
 import { Logger } from './codeLogManager';
 import URI from 'vscode-uri';
+import * as dir from '../../common/pathReader';
 let path = require('path');
-let dir = require('path-reader');
 let os = require('os');
 let urlencode = require('urlencode');
 

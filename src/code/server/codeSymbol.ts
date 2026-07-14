@@ -13,7 +13,7 @@ import { CodeEditor } from './codeEditor';
 import { DocSymbolProcessor } from './docSymbolProcessor';
 import { Logger } from './codeLogManager';
 import { CodeSettings } from './codeSettings';
-let dir = require('path-reader');
+import * as dir from '../../common/pathReader';
 
 export class CodeSymbol {
 	// 用 kv 结构保存所有用户文件以及对应符号结构（包含定义符号和AST，以及方法）

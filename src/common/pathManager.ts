@@ -2,8 +2,8 @@ import { DebugLogger } from './logManager';
 import { Tools } from './tools';
 import { isArray } from 'util';
 import * as vscode from 'vscode';
+import * as pathReader from './pathReader';
 
-let pathReader = require('path-reader');
 // let path = require("path");
 
 export class PathManager {

@@ -1,7 +1,7 @@
 import * as Tools from '../codeTools';
 import { Logger } from '../codeLogManager';
 import fs = require('fs');
-import dir = require('path-reader');
+import * as dir from '../../../common/pathReader';
 import path = require('path');
 import { CodeSymbol } from '../codeSymbol';
 
