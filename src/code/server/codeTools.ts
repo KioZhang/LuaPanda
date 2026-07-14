@@ -7,6 +7,12 @@
 import { Logger } from './codeLogManager';
 import URI from 'vscode-uri';
 import * as dir from '../../common/pathReader';
+import {
+	DEFAULT_SCAN_MAX_DEPTH,
+	ScanOptions,
+	WorkspaceScanOptions,
+	createReaderScanOptions
+} from '../../common/scanConfig';
 let path = require('path');
 let os = require('os');
 let urlencode = require('urlencode');
@@ -25,8 +31,11 @@ import * as fs from "fs";
 //-- 暂存的数据
 //-----------------------------------------------------------------------------
 let initParameter; //初始化参数
+let workspaceScanOptions: WorkspaceScanOptions = {};
 export function setInitPara(para){
 	initParameter = para;
+	workspaceScanOptions = para && para.initializationOptions &&
+		para.initializationOptions.workspaceScanOptions || {};
 }
 
 // 插件安装位置
@@ -64,6 +73,30 @@ export function removeOpenedFolder(beDelFolders){
 			}
 		}
 	}
+}
+
+/**
+ * @brief 获取指定工作区根目录的扫描配置。
+ * @param rootPath 工作区根目录。
+ * @return 对应工作区的扫描配置；未配置时使用默认值。
+ */
+export function getWorkspaceScanOptions(rootPath: string): ScanOptions {
+	if (workspaceScanOptions[rootPath]) {
+		return workspaceScanOptions[rootPath];
+	}
+	if (process.platform === 'win32') {
+		const normalizedRoot = rootPath.toLowerCase();
+		for (const configuredRoot of Object.keys(workspaceScanOptions)) {
+			if (configuredRoot.toLowerCase() === normalizedRoot) {
+				return workspaceScanOptions[configuredRoot];
+			}
+		}
+	}
+	return {
+		excludePatterns: [],
+		maxDepth: DEFAULT_SCAN_MAX_DEPTH,
+		basePath: rootPath
+	};
 }
 
 export function setVScodeExtensionPath(_VScodeExtensionPath:string){
@@ -283,7 +316,10 @@ export function refresh_FileName_Uri_Cache(){
 	for (const rootFolder of getVSCodeOpenedFolders()) {
 		//rootFiles为空，构建rootFilesMap，这个步骤应该放在init时，或者打开首个文件时
 		//构建操作，只执行一次
-		let rootFiles = dir.files(rootFolder, {sync:true});
+		let rootFiles = dir.files(rootFolder, Object.assign(
+			{sync:true},
+			createReaderScanOptions(getWorkspaceScanOptions(rootFolder))
+		));
 		totalFileNum += rootFiles.length
 		for(let idx = 0, len = rootFiles.length; idx < len ; idx++){
 			// let currentFileIdx = idx + 1;

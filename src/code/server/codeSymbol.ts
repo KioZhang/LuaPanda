@@ -14,6 +14,7 @@ import { DocSymbolProcessor } from './docSymbolProcessor';
 import { Logger } from './codeLogManager';
 import { CodeSettings } from './codeSettings';
 import * as dir from '../../common/pathReader';
+import { createReaderScanOptions } from '../../common/scanConfig';
 
 export class CodeSymbol {
 	// 用 kv 结构保存所有用户文件以及对应符号结构（包含定义符号和AST，以及方法）
@@ -56,7 +57,11 @@ export class CodeSymbol {
 		Tools.setLoadedExt(luaExtname);
 		//解析workSpace中同后缀文件
 		let exp = new RegExp(luaExtname + '$', "i");
-		dir.readFiles(rootpath, { match: exp }, function (err, content, filePath, next) {
+		let readerOptions = Object.assign(
+			{match: exp},
+			createReaderScanOptions(Tools.getWorkspaceScanOptions(rootpath))
+		);
+		dir.readFiles(rootpath, readerOptions, function (err, content, filePath, next) {
 			if (!err) {
 				let uri = Tools.pathToUri(filePath);
 				if(!Tools.isinPreloadFolder(uri)){

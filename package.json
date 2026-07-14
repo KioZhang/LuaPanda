@@ -1,7 +1,7 @@
 {
 	"name": "luapanda",
 	"displayName": "LuaPanda",
-	"version": "3.3.1-rc2",
+	"version": "3.3.2-rc1",
 	"publisher": "stuartwang",
 	"description": "lua debug and code tools for VS Code.",
 	"author": {
@@ -45,6 +45,7 @@
 		"await-notify": "1.0.1",
 		"lua-fmt": "^2.6.0",
 		"luaparse": "^0.2.1",
+		"minimatch": "^3.1.2",
 		"univac": "0.0.8",
 		"urlencode": "^1.1.0",
 		"vscode-debugadapter": "1.27.0",
@@ -91,6 +92,34 @@
 			"type": "object",
 			"title": "lua-panda configuration",
 			"properties": {
+				"lua_analyzer.scan.inheritFilesExclude": {
+					"scope": "resource",
+					"type": "boolean",
+					"default": true,
+					"description": "扫描工作区时继承 files.exclude 中已启用的排除规则。"
+				},
+				"lua_analyzer.scan.inheritSearchExclude": {
+					"scope": "resource",
+					"type": "boolean",
+					"default": true,
+					"description": "扫描工作区时继承 search.exclude 中已启用的排除规则。"
+				},
+				"lua_analyzer.scan.exclude": {
+					"scope": "resource",
+					"type": "array",
+					"items": {
+						"type": "string"
+					},
+					"default": [],
+					"description": "LuaPanda 独立的工作区相对路径排除规则，使用 VS Code glob 语法。"
+				},
+				"lua_analyzer.scan.maxDepth": {
+					"scope": "resource",
+					"type": "integer",
+					"minimum": 0,
+					"default": 5,
+					"description": "最大目录扫描深度。工作区根目录为 0；设为 0 时只扫描根目录文件。"
+				},
 				"lua_analyzer.codeLinting.enable": {
 					"scope": "resource",
 					"type": "boolean",

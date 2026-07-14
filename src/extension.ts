@@ -15,10 +15,20 @@ import {
 import { workspace, ExtensionContext } from 'vscode';
 import { VisualSetting } from './debug/visualSetting'
 import { PathManager } from './common/pathManager';
+import {
+    ScanOptions,
+    WorkspaceScanOptions,
+    getEnabledExcludePatterns,
+    normalizeMaxDepth
+} from './common/scanConfig';
 
 let client: LanguageClient;
+let clientFileWatcher: vscode.FileSystemWatcher;
+let clientRestartPromise: Promise<void> = Promise.resolve();
+let isDeactivating = false;
 
 export function activate(context: ExtensionContext) {
+    isDeactivating = false;
     // reloadWindow
     let reloadWindow = vscode.commands.registerCommand('luapanda.reloadLuaDebug', function () {
         vscode.commands.executeCommand("workbench.action.reloadWindow")
@@ -77,63 +87,130 @@ export function activate(context: ExtensionContext) {
     DebugLogger.init();
     StatusBarManager.init();
 
-    // language server 相关
-	// The server is implemented in node
-	let serverModule = context.asAbsolutePath(
-		path.join('out', 'code', 'server', 'server.js')
-	);
-	// The debug options for the server
-	// --inspect=6009: runs the server in Node's Inspector mode so VS Code can attach to the server for debugging
-	let debugOptions = { execArgv: ['--nolazy', '--inspect=6009'] };
-
-	// If the extension is launched in debug mode then the debug server options are used
-	// Otherwise the run options are used
-	let serverOptions: ServerOptions = {
-		run: { module: serverModule, transport: TransportKind.ipc },
-		debug: {
-			module: serverModule,
-			transport: TransportKind.ipc,
-			options: debugOptions
-		}
-	};
-
-	// Options to control the language client
-	let clientOptions: LanguageClientOptions = {
-		// Register the server for plain text documents
-		documentSelector: [{ scheme: 'file', language: 'lua' }],
-		synchronize: {
-			// Notify the server about file changes to '.clientrc files contained in the workspace
-			fileEvents: workspace.createFileSystemWatcher('**/.clientrc')
-		}
-	};
-
-	// Create the language client and start the client.
-	client = new LanguageClient(
-		'lua_analyzer',
-		'Lua Analyzer',
-		serverOptions,
-		clientOptions
-	);
-
-	// Start the client. This will also launch the server
-	client.start();
-	client.onReady().then(() => {
-        Tools.client = client;
-        client.onNotification("setRootFolders", setRootFolders);
-        client.onNotification("showProgress", showProgress); // 初始化进度
-        client.onNotification("showErrorMessage", showErrorMessage);
-        client.onNotification("showWarningMessage", showWarningMessage);
-        client.onNotification("showInformationMessage", showInformationMessage);
-	});
+    startLanguageClient(context);
+    context.subscriptions.push(workspace.onDidChangeConfiguration(event => {
+        if (event.affectsConfiguration('lua_analyzer.scan') ||
+            event.affectsConfiguration('files.exclude') ||
+            event.affectsConfiguration('search.exclude')) {
+            restartLanguageClient(context);
+        }
+    }));
+    context.subscriptions.push(workspace.onDidChangeWorkspaceFolders(() => {
+        restartLanguageClient(context);
+    }));
 
 }
 
 export function deactivate() {
-    if (!client) {
-		return undefined;
+    isDeactivating = true;
+    if (clientFileWatcher) {
+        clientFileWatcher.dispose();
+        clientFileWatcher = undefined;
     }
     Tools.client = undefined;
-	return client.stop();
+	return clientRestartPromise.then(() => client ? client.stop() : undefined);
+}
+
+/**
+ * @brief 获取指定工作区资源的扫描配置。
+ * @param resource 用于解析资源级 VS Code 配置的 URI。
+ * @return 合并继承规则和 LuaPanda 独立规则后的扫描配置。
+ */
+function getScanOptions(resource?: vscode.Uri): ScanOptions {
+    const scanConfig = workspace.getConfiguration('lua_analyzer.scan', resource);
+    let excludePatterns: string[] = [];
+    if (scanConfig.get<boolean>('inheritFilesExclude', true)) {
+        const filesExclude = workspace.getConfiguration('files', resource).get<any>('exclude', {});
+        excludePatterns = excludePatterns.concat(getEnabledExcludePatterns(filesExclude));
+    }
+    if (scanConfig.get<boolean>('inheritSearchExclude', true)) {
+        const searchExclude = workspace.getConfiguration('search', resource).get<any>('exclude', {});
+        excludePatterns = excludePatterns.concat(getEnabledExcludePatterns(searchExclude));
+    }
+    const customExclude = scanConfig.get<string[]>('exclude', []);
+    if (Array.isArray(customExclude)) {
+        excludePatterns = excludePatterns.concat(customExclude);
+    }
+    return {
+        excludePatterns: Array.from(new Set(excludePatterns)),
+        maxDepth: normalizeMaxDepth(scanConfig.get<number>('maxDepth', 5)),
+        basePath: resource && resource.fsPath
+    };
+}
+
+/**
+ * @brief 获取所有工作区文件夹的扫描配置。
+ * @return 以工作区根路径为键的扫描配置。
+ */
+function getWorkspaceScanOptions(): WorkspaceScanOptions {
+    const result: WorkspaceScanOptions = {};
+    for (const folder of workspace.workspaceFolders || []) {
+        result[folder.uri.fsPath] = getScanOptions(folder.uri);
+    }
+    return result;
+}
+
+function startLanguageClient(context: ExtensionContext): void {
+    const serverModule = context.asAbsolutePath(path.join('out', 'code', 'server', 'server.js'));
+    const debugOptions = { execArgv: ['--nolazy', '--inspect=6009'] };
+    const serverOptions: ServerOptions = {
+        run: { module: serverModule, transport: TransportKind.ipc },
+        debug: {
+            module: serverModule,
+            transport: TransportKind.ipc,
+            options: debugOptions
+        }
+    };
+
+    clientFileWatcher = workspace.createFileSystemWatcher('**/.clientrc');
+    const clientOptions: LanguageClientOptions = {
+        documentSelector: [{ scheme: 'file', language: 'lua' }],
+        synchronize: {
+            fileEvents: clientFileWatcher
+        },
+        initializationOptions: {
+            workspaceScanOptions: getWorkspaceScanOptions()
+        }
+    };
+
+    const currentClient = new LanguageClient(
+        'lua_analyzer',
+        'Lua Analyzer',
+        serverOptions,
+        clientOptions
+    );
+    client = currentClient;
+    currentClient.start();
+    currentClient.onReady().then(() => {
+        if (client !== currentClient || isDeactivating) {
+            return;
+        }
+        Tools.client = currentClient;
+        currentClient.onNotification("setRootFolders", setRootFolders);
+        currentClient.onNotification("showProgress", showProgress);
+        currentClient.onNotification("showErrorMessage", showErrorMessage);
+        currentClient.onNotification("showWarningMessage", showWarningMessage);
+        currentClient.onNotification("showInformationMessage", showInformationMessage);
+    }, () => undefined);
+}
+
+function restartLanguageClient(context: ExtensionContext): void {
+    clientRestartPromise = clientRestartPromise.then(() => {
+        const previousClient = client;
+        client = undefined;
+        Tools.client = undefined;
+        if (clientFileWatcher) {
+            clientFileWatcher.dispose();
+            clientFileWatcher = undefined;
+        }
+        return previousClient ? previousClient.stop() : undefined;
+    }).then(() => {
+        if (!isDeactivating) {
+            startLanguageClient(context);
+        }
+    }).catch(error => {
+        vscode.window.showErrorMessage("LuaPanda 重新加载扫描配置失败: " + error.message);
+    });
 }
 
 // debug启动时的配置项处理
@@ -222,6 +299,7 @@ class LuaConfigurationProvider implements vscode.DebugConfigurationProvider {
 
         // rootFolder 固定为 ${workspaceFolder}, 用来查找本项目的launch.json.
         config.rootFolder = '${workspaceFolder}';
+        config.__luaPandaScanOptions = getScanOptions(folder && folder.uri);
 
         if (!config.TempFilePath) {
             config.TempFilePath = '${workspaceFolder}';

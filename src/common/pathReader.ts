@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-interface ReaderOptions {
+export interface ReaderOptions {
     sync?: boolean;
     recursive?: boolean;
     reverse?: boolean;
@@ -14,6 +14,9 @@ interface ReaderOptions {
     matchDir?: RegExp | string[];
     excludeDir?: RegExp | string[];
     filter?: (filename: string) => boolean;
+    excludePath?: (relativePath: string, isDir: boolean) => boolean;
+    excludeBasePath?: string;
+    maxDepth?: number;
     encoding?: BufferEncoding;
     doneOnErr?: boolean;
     valuetizer?: (stat: fs.Stats, shortName: string, fullPath: string, isDir: boolean) => any;
@@ -55,8 +58,21 @@ function valueForEntry(options: ReaderOptions, stat: fs.Stats, name: string,
     return options.shortName ? name : fullPath;
 }
 
+function isPathExcluded(options: ReaderOptions, rootPath: string,
+    fullPath: string, isDir: boolean): boolean {
+    return !!(options.excludePath &&
+        options.excludePath(path.relative(options.excludeBasePath || rootPath, fullPath)
+            .replace(/\\/g, '/'), isDir));
+}
+
+function canEnterDirectory(options: ReaderOptions, currentDepth: number): boolean {
+    return options.recursive !== false &&
+        (options.maxDepth === undefined || currentDepth < options.maxDepth);
+}
+
 function scanDirectorySync(dirPath: string, type: string, options: ReaderOptions,
-    rootPath: string, visitedRealPaths: Set<string>, results: ScanResults): void {
+    rootPath: string, visitedRealPaths: Set<string>, results: ScanResults,
+    currentDepth: number): void {
     let realPath: string;
     try {
         realPath = fs.realpathSync(dirPath);
@@ -88,17 +104,23 @@ function scanDirectorySync(dirPath: string, type: string, options: ReaderOptions
         }
 
         const isDir = stat.isDirectory();
+        if (isPathExcluded(options, rootPath, fullPath, isDir)) {
+            continue;
+        }
         const value = valueForEntry(options, stat, name, fullPath, isDir, rootPath);
         if (value == null) {
             continue;
         }
 
         if (isDir) {
-            if (type !== 'file') {
+            const entryDepth = currentDepth + 1;
+            if (type !== 'file' &&
+                (options.maxDepth === undefined || entryDepth <= options.maxDepth)) {
                 results.dirs.push(value);
             }
-            if (options.recursive !== false) {
-                scanDirectorySync(fullPath, type, options, rootPath, visitedRealPaths, results);
+            if (canEnterDirectory(options, currentDepth)) {
+                scanDirectorySync(fullPath, type, options, rootPath, visitedRealPaths, results,
+                    entryDepth);
             }
         } else if (type !== 'dir' && !(options.excludeHidden && /^\./.test(name))) {
             results.files.push(value);
@@ -114,7 +136,7 @@ function scanFilesSync(dirPath: string, type: string, options: ReaderOptions) {
     }
 
     const results: ScanResults = {files: [], dirs: []};
-    scanDirectorySync(dirPath, type, options, dirPath, new Set<string>(), results);
+    scanDirectorySync(dirPath, type, options, dirPath, new Set<string>(), results, 0);
     if (type === 'all') {
         return results;
     }
@@ -166,7 +188,8 @@ export function files(dirPath: string, typeOrOptions?: any,
 }
 
 function readDirectory(dirPath: string, options: ReaderOptions, callback,
-    complete, filesRead: string[], visitedRealPaths: Set<string>): void {
+    complete, filesRead: string[], visitedRealPaths: Set<string>,
+    rootPath: string, currentDepth: number): void {
     fs.realpath(dirPath, (realPathError, realPath) => {
         if (realPathError) {
             return isLoopError(realPathError) ? complete(null) : complete(realPathError);
@@ -201,15 +224,18 @@ function readDirectory(dirPath: string, options: ReaderOptions, callback,
                         if (statError) {
                             return isLoopError(statError) ? next() : complete(statError);
                         }
+                        if (isPathExcluded(options, rootPath, fullPath, stat.isDirectory())) {
+                            return next();
+                        }
                         if (stat.isDirectory()) {
-                            if (options.recursive === false ||
+                            if (!canEnterDirectory(options, currentDepth) ||
                                 (options.matchDir && !matches(name, options.matchDir)) ||
                                 (options.excludeDir && matches(name, options.excludeDir))) {
                                 return next();
                             }
                             return readDirectory(fullPath, options, callback, error => {
                                 return error ? complete(error) : next();
-                            }, filesRead, visitedRealPaths);
+                            }, filesRead, visitedRealPaths, rootPath, currentDepth + 1);
                         }
                         if (!stat.isFile() ||
                             (options.match && !matches(name, options.match)) ||
@@ -279,5 +305,5 @@ export function readFiles(dirPath: string, optionsOrCallback: any,
         if (typeof complete === 'function') {
             complete(error || null, filesRead);
         }
-    }, filesRead, new Set<string>());
+    }, filesRead, new Set<string>(), dirPath, 0);
 }

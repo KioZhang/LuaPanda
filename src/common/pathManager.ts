@@ -3,6 +3,7 @@ import { Tools } from './tools';
 import { isArray } from 'util';
 import * as vscode from 'vscode';
 import * as pathReader from './pathReader';
+import { ScanOptions, createReaderScanOptions } from './scanConfig';
 
 // let path = require("path");
 
@@ -22,11 +23,19 @@ export class PathManager {
         this.consoleLog = _consoleLog;
     }
 
-    // 建立/刷新 工程下文件名-路径Map
-    public rebuildWorkspaceNamePathMap(rootPath : string){
+    /**
+     * @brief 建立或刷新工程文件名到路径的映射。
+     * @param rootPath 扫描根目录。
+     * @param scanOptions 路径排除和最大深度配置。
+     * @return 无返回值。
+     */
+    public rebuildWorkspaceNamePathMap(rootPath: string, scanOptions?: ScanOptions): void {
         let beginMS = Tools.getCurrentMS();//启动时毫秒数
         let _fileNameToPathMap = new Array();      // 文件名-路径 cache
-        let workspaceFiles = pathReader.files(rootPath, {sync:true});   //同步读取工程中所有文件名
+        let workspaceFiles = pathReader.files(rootPath, Object.assign(
+            {sync:true},
+            createReaderScanOptions(scanOptions)
+        ));   //同步读取工程中所有文件名
         let workspaceFileCount = workspaceFiles.length;
         let processFilNum = 0; //记录最终处理了多少个文件
         for(let processingFileIdx = 0; processingFileIdx < workspaceFileCount ; processingFileIdx++){
@@ -73,8 +82,8 @@ export class PathManager {
         let endMS = Tools.getCurrentMS();//文件分析结束时毫秒数
         DebugLogger.AdapterInfo("文件Map刷新完毕，使用了" +  (endMS - beginMS) + "毫秒。检索了"+ workspaceFileCount +"个文件， 其中" + processFilNum + "个lua类型文件");
         if(processFilNum <= 0){
-            vscode.window.showErrorMessage("没有在工程中检索到lua文件。请检查launch.json文件中lua后缀(luaFileExtension)是否配置正确, 以及VSCode打开的工程是否正确", "确定")
-            let noLuaFileTip = "[!] 没有在VSCode打开的工程中检索到lua文件，请进行如下检查\n 1. VSCode打开的文件夹是否正确 \n 2. launch.json 文件中 luaFileExtension 选项配置是否正确"
+            vscode.window.showErrorMessage("没有在工程中检索到lua文件。请检查工作区、luaFileExtension，以及 LuaPanda 扫描排除和深度配置。", "确定")
+            let noLuaFileTip = "[!] 没有检索到lua文件，请检查：\n 1. VSCode打开的文件夹是否正确\n 2. launch.json 中 luaFileExtension 是否正确\n 3. lua_analyzer.scan 的排除规则和 maxDepth 是否覆盖目标文件"
             DebugLogger.DebuggerInfo(noLuaFileTip);
             DebugLogger.AdapterInfo(noLuaFileTip);
         }

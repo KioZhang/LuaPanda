@@ -238,7 +238,7 @@ export class LuaDebugSession extends LoggingDebugSession {
                 vscode.window.showErrorMessage("[Error] launch.json 文件中 cwd 指向的路径 " + args.cwd + " 不存在，请修改后再次运行！" , "好的");
                 return;
             }
-            this._pathManager.rebuildWorkspaceNamePathMap(args.cwd);
+            this._pathManager.rebuildWorkspaceNamePathMap(args.cwd, args.__luaPandaScanOptions);
             this._pathManager.checkSameNameFile(!!args.distinguishSameNameFile);
         }
 
